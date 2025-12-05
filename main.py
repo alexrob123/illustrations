@@ -32,7 +32,13 @@ def main(paper, figure, output_dir):
         exit(1)
 
     plot_func = getattr(paper_module, func_name)
-    plot_func(output_dir)
+
+    if output_dir is not None:
+        output_file = os.path.join(output_dir, f"{paper}-Fig{figure}.png")
+    else:
+        output_file = None
+
+    plot_func(output_file)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,3 @@
-import os
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -27,15 +25,15 @@ labels = ["(a)", "(b)", "(c)", "(d)", "(e)", "(f)"]
 def compute_PRD(P, Q, lambdas):
     precisions = []
     recalls = []
-    for l in lambdas:
-        prec = np.sum(np.minimum(l * P, Q))
-        rec = np.sum(np.minimum(P, 1 / l * Q))
+    for lam in lambdas:
+        prec = np.sum(np.minimum(lam * P, Q))
+        rec = np.sum(np.minimum(P, 1 / lam * Q))
         precisions.append(prec)
         recalls.append(rec)
     return np.array(precisions), np.array(recalls)
 
 
-def plot_fig_2(output_dir):
+def plot_fig_2(output_file):
     fig, axes = plt.subplots(2, len(P_list), figsize=(16, 4))
     colors = ["#6f8ebf", "#77b986", "#cf7174", "#9a8ec1", "#d6c78f", "#83c3d7"]
 
@@ -92,16 +90,14 @@ def plot_fig_2(output_dir):
 
     plt.tight_layout()
 
-    if output_dir is None:
+    if output_file is None:
         plt.show()
     else:
-        filename = os.path.splitext(os.path.basename(__file__))[0]
-        filepath = os.path.join(output_dir, f"{filename}_fig2.png")
-        plt.savefig(filepath, bbox_inches="tight", dpi=300)
+        plt.savefig(output_file, bbox_inches="tight", dpi=300)
         plt.close()
 
 
-def plot_fig_3(output_dir):
+def plot_fig_3(output_file):
     lin = np.linspace(0.000_001, 0.999_999, num=1_000)
     lambdas = lin / (1 - lin)
 
@@ -135,10 +131,8 @@ def plot_fig_3(output_dir):
 
     plt.tight_layout()
 
-    if output_dir is None:
+    if output_file is None:
         plt.show()
     else:
-        filename = os.path.splitext(os.path.basename(__file__))[0]
-        filepath = os.path.join(output_dir, f"{filename}_fig3.png")
-        plt.savefig(filepath, bbox_inches="tight", dpi=300)
+        plt.savefig(output_file, bbox_inches="tight", dpi=300)
         plt.close()
