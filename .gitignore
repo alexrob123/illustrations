@@ -1,5 +1,10 @@
+# Development files
+notebooks/
+
 # Ouput files
 output/*
+outputs/*
+out-*/
 
 # Python-generated files
 __pycache__/

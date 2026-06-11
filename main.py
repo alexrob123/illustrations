@@ -61,7 +61,7 @@ if __name__ == "__main__":
         "--output_dir",
         "-o",
         type=str,
-        default="./output",
+        default="./outputs",
         help="Output directory to save figure. If not provided, the plot is shown.",
     )
     # parser.add_argument(
