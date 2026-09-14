@@ -1,4 +1,6 @@
 """
+Unifying and extending Precision Recall metrics for assessing generative models
+Benjamin Sykes, Loic Simon, Julien Rabin
 https://arxiv.org/abs/2405.01611
 """
 
@@ -16,12 +18,33 @@ from tqdm import tqdm
 # Constants
 # --------------------------------------------------------------------------------
 
+# 4. Experiments
+N = 10_000
+N_GT = 100_000
+
+# 4.1 Gaussian shifts
+gaussian_shifts_params = {
+    "N": 10_000,
+    "DIM": 64,
+    "N_RUN": 100,
+    "SHIFTS": [1, 2, 3, 4],
+    "K": [4, max(1, int(np.sqrt(N)))],
+    "SPLITS": [True, False],
+}
+
+# 4.2 Gaussian mixture models
+
+gmm_params = {
+    "N": 1_000,
+    "DIM": 64,
+    "N_RUN": 100,
+    "K": [4, max(1, int(np.sqrt(N)))],
+    "SPLIT": True,
+}
+
 # Paper constants
-
 N_GT, N, N_GMM = 100_000, 10_000, 1_000
-
-DIM = 64
-BIG_DIM = 2048
+DIM, BIG_DIM = 64, 2048
 
 K = [4, max(1, int(np.sqrt(N)))]
 
@@ -50,11 +73,7 @@ GMM_WEIGHTS_Q = np.array([0.0, 0.5, 0.2, 0.3])
 
 # Personal constants
 
-# LAMBDAS = np.tan(np.linspace(0, np.pi / 2, 1_000 + 1, endpoint=False)[1:])
-LAMBDAS = np.tan(np.linspace(0, np.pi / 2, 100 + 1, endpoint=True))[1:]
-print(len(LAMBDAS))
-# LAMBDAS[-1] = np.inf
-
+LAMBDAS = np.tan(np.linspace(0, np.pi / 2, 5000 + 1, endpoint=True))[1:]
 
 SEED = 0
 
