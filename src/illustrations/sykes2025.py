@@ -14,8 +14,6 @@ from sklearn.metrics import pairwise_distances_chunked
 from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 
-from illustrations.sykes2024 import FONTSIZE
-
 SEED = 0
 
 CLF_COLORS = {
@@ -189,14 +187,14 @@ def gaussian_score(
     sigma: float = 1.0,
 ) -> np.ndarray:
     """
-    Bayes-optimal score p(z)/q(z).
+    Bayes-optimal score q(z)/p(z).
     """
     dim = z.shape[1]
 
     p_z = multivariate_normal.pdf(z, mean=mu_p, cov=sigma * np.eye(dim))
     q_z = multivariate_normal.pdf(z, mean=mu_q, cov=sigma * np.eye(dim))
 
-    return p_z / q_z
+    return q_z / p_z
 
 
 def log_likelihood_ratio_score_gmm(
@@ -242,9 +240,24 @@ def cov_score(
     Y: np.ndarray,
     k: int,
 ) -> np.ndarray:
+    """
+    As per experiments to match Fig 16, authors seem to not exlude self.
+    """
+    # manual flag for testing purposes
+    allow_exclusion = False
 
-    z_to_X_knn_radii = kth_nn_radius(z, X, k, exclude_self=np.array_equal(z, X))
-    z_to_Y_knn_radii = kth_nn_radius(z, Y, k, exclude_self=np.array_equal(z, Y))
+    z_to_X_knn_radii = kth_nn_radius(
+        z,
+        X,
+        k,
+        exclude_self=allow_exclusion and np.array_equal(z, X),
+    )
+    z_to_Y_knn_radii = kth_nn_radius(
+        z,
+        Y,
+        k,
+        exclude_self=allow_exclusion and np.array_equal(z, Y),
+    )
 
     n_X_in_Y_ball = count_points_in_ball(X, z, z_to_Y_knn_radii)
     n_Y_in_X_ball = count_points_in_ball(Y, z, z_to_X_knn_radii)
@@ -258,9 +271,14 @@ def ipr_score(
     Y: np.ndarray,
     k: int,
 ) -> np.ndarray:
+    """
+    As per experiments to match Fig 16, authors seem to not exlude self.
+    """
+    # manual flag for testing purposes
+    allow_exclusion = False
 
-    X_to_X_knn_radii = kth_nn_radius(X, X, k, exclude_self=True)
-    Y_to_Y_knn_radii = kth_nn_radius(Y, Y, k, exclude_self=True)
+    X_to_X_knn_radii = kth_nn_radius(X, X, k, exclude_self=allow_exclusion)
+    Y_to_Y_knn_radii = kth_nn_radius(Y, Y, k, exclude_self=allow_exclusion)
 
     p_hat = count_balls_containing(z, X, X_to_X_knn_radii)
     q_hat = count_balls_containing(z, Y, Y_to_Y_knn_radii)
@@ -308,8 +326,11 @@ def ipr_score(
 
 
 def kde_score(z, X, Y, k):
-    X_to_X_knn_radii = kth_nn_radius(X, X, k, exclude_self=True)
-    Y_to_Y_knn_radii = kth_nn_radius(Y, Y, k, exclude_self=True)
+    # manual flag for testing purposes
+    allow_exclusion = False
+
+    X_to_X_knn_radii = kth_nn_radius(X, X, k, exclude_self=allow_exclusion)
+    Y_to_Y_knn_radii = kth_nn_radius(Y, Y, k, exclude_self=allow_exclusion)
 
     bandwidth_X = np.mean(X_to_X_knn_radii)
     bandwidth_Y = np.mean(Y_to_Y_knn_radii)
@@ -326,20 +347,25 @@ def knn_score(
     Y: np.ndarray,
     k: int,
 ) -> np.ndarray:
+    """
+    As per experiments to match Fig 16, authors seem to not exlude self.
+    """
+    # manual flag for testing purposes
+    allow_exclusion = False
 
     XY = np.vstack([X, Y])
     labels = np.array([0] * len(X) + [1] * len(Y))  # 0: X, 1: Y
 
     # exclude self
     self_query = np.array_equal(z, X) or np.array_equal(z, Y)
-    n_neighbors = k + 1 if self_query else k
+    n_neighbors = k + 1 if allow_exclusion and self_query else k
 
     # _, indices = kth_nearest_neighbours(z, XY, k)  # (|z|, k)
 
     nn = NearestNeighbors(n_neighbors=n_neighbors).fit(XY)
     _, indices = nn.kneighbors(z)  # (|z|, k)
 
-    if self_query:
+    if allow_exclusion and self_query:
         indices = indices[:, 1:]
 
     neighbour_labels = labels[indices]
@@ -362,24 +388,23 @@ def pr_curve_gaussian_GT(
     lambdas: np.ndarray,
 ):
     # Bayes scores
-    P_scores = gaussian_score(X, mu_p, mu_q)  # (N,)
-    Q_scores = gaussian_score(Y, mu_p, mu_q)  # (N,)
+    scores_X = gaussian_score(X, mu_p, mu_q)  # (N,)
+    scores_Y = gaussian_score(Y, mu_p, mu_q)  # (N,)
 
-    # thresholds = np.concatenate([[np.inf], 1.0 / lambdas[1:-1], [0.0]])  # (L,)
-    scores = np.unique(np.concatenate([P_scores, Q_scores]))
-    if len(scores) > len(lambdas):
-        thresholds = np.concatenate([[0.0], [np.inf], 1 / lambdas])
-    else:
-        thresholds = np.concatenate([[0.0], [np.inf], scores])
-    # thresholds = 1 / lambdas  # (L,)
-    fpr = (P_scores[:, None] < thresholds[None, :]).mean(axis=0)  # (L,)
-    fnr = (Q_scores[:, None] >= thresholds[None, :]).mean(axis=0)  # (L,)
+    thresholds = np.concatenate([[0.0], lambdas, [np.inf]])  # (L,)
+    fpr = (scores_X[:, None] < thresholds[None, :]).mean(axis=0)  # (L,)
+    fnr = (scores_Y[:, None] >= thresholds[None, :]).mean(axis=0)  # (L,)
 
-    risk = lambdas[:, None] * fpr[None, :] + fnr[None, :]  # (L, L)
-    precisions = risk.min(axis=1)  # (L,)
-    recalls = precisions / lambdas  # (L,)
+    alphas_interior = lambdas * fpr[1:-1] + fnr[1:-1]
+    betas_interior = alphas_interior / lambdas
 
-    return precisions, recalls
+    alpha_inf = fnr[fpr == 0].min()
+    beta_0 = fpr[fnr == 0].min()
+
+    alphas = np.concatenate([[0.0], alphas_interior, [alpha_inf]])
+    betas = np.concatenate([[beta_0], betas_interior, [0.0]])
+
+    return alphas, betas
 
 
 def pr_curve_GMM_GT(
@@ -390,41 +415,23 @@ def pr_curve_GMM_GT(
     Q_weights: np.ndarray,
     lambdas: np.ndarray,
 ):
-    scores_for_P = log_likelihood_ratio_score_gmm(X, means, P_weights, Q_weights)
-    scores_for_Q = log_likelihood_ratio_score_gmm(Y, means, P_weights, Q_weights)
+    scores_X = log_likelihood_ratio_score_gmm(X, means, P_weights, Q_weights)
+    scores_Y = log_likelihood_ratio_score_gmm(Y, means, P_weights, Q_weights)
 
-    precisions, recalls = [], []
-    for lam in lambdas:
-        fpr = (scores_for_P < -np.log(lam)).mean()
-        fnr = (scores_for_Q >= -np.log(lam)).mean()
+    thresholds = np.concatenate([[0.0], -np.log(lambdas), [np.inf]])
+    fpr = (scores_X[:, None] < thresholds[None, :]).mean(axis=0)
+    fnr = (scores_Y[:, None] >= thresholds[None, :]).mean(axis=0)
 
-        precision = lam * fpr + fnr
-        recall = 1 / lam * precision
+    alphas_interior = lambdas * fpr[1:-1] + fnr[1:-1]
+    betas_interior = alphas_interior / lambdas
 
-        precisions.append(precision)
-        recalls.append(recall)
+    alpha_inf = fnr[fpr == 0].min()
+    beta_0 = fpr[fnr == 0].min()
 
-    # all_scores = np.concatenate([scores_for_P, scores_for_Q])
-    # thresholds = np.linspace(
-    #     all_scores.max() + 0.1,
-    #     all_scores.min() - 0.1,
-    #     len(lambdas),
-    # )
+    alphas = np.concatenate([[0.0], alphas_interior, [alpha_inf]])
+    betas = np.concatenate([[beta_0], betas_interior, [0.0]])
 
-    # precisions, recalls = [], []
-    # for thresh in thresholds:
-    #     fpr = (scores_for_P < thresh).mean()
-    #     fnr = (scores_for_Q >= thresh).mean()
-
-    #     lam = np.exp(-thresh)
-
-    #     precision = lam * fpr + fnr
-    #     recall = 1 / lam * precision
-
-    #     precisions.append(precision)
-    #     recalls.append(recall)
-
-    return np.array(precisions), np.array(recalls)
+    return alphas, betas
 
 
 SCORE = {
@@ -471,9 +478,11 @@ def pr_curve(
         k = int(np.sqrt(len(X_train)))
         print(f"Using k = sqrt(n) for {clf} (n={len(X_train)}, k={k})")
 
+    # Matching scores
     scores_X_vs_X, scores_X_vs_Y = SCORE[clf](X_test, X_train, Y_train, k)  # (N,)
     scores_Y_vs_X, scores_Y_vs_Y = SCORE[clf](Y_test, X_train, Y_train, k)  # (N,)
 
+    # Classification
     gammas = np.concatenate([[0.0], lambdas, [np.inf]])
     fpr = np.array(
         [1.0 - classification(scores_X_vs_X, scores_X_vs_Y, g).mean() for g in gammas]
@@ -482,6 +491,7 @@ def pr_curve(
         [classification(scores_Y_vs_X, scores_Y_vs_Y, g).mean() for g in gammas]
     )
 
+    # Precision/Recall
     risk = lambdas[:, None] * fpr[None, :] + fnr[None, :]  # (L, L)
     min_risk = risk.min(axis=1)  # (L,)
 
@@ -494,7 +504,7 @@ def pr_curve(
     alpha_at_inf = fnr[zero_fpr].min()
 
     alphas = np.concatenate([[0.0], min_risk, [alpha_at_inf]])
-    betas = np.concatenate([[beta_at_0], lambdas, [0.0]])
+    betas = np.concatenate([[beta_at_0], min_risk / lambdas, [0.0]])
 
     return alphas, betas
 
@@ -505,7 +515,10 @@ def pr_curve(
 
 
 def plot_fig_2(out=None):
-    """Comparing two shifted Gaussians"""
+    """
+    Comparing two shifted Gaussians
+    """
+    print("\n##### Fig 2 #####\n")
 
     # Randomness
     seed = 0
@@ -522,7 +535,7 @@ def plot_fig_2(out=None):
     k_values = [4, -1]  # to int(np.sqrt(n)) when -1
     split_values = [True, False]
 
-    lambdas = np.tan(np.linspace(0, np.pi / 2, 151))[1:]
+    lambdas = np.tan(np.linspace(0, np.pi / 2, 152))[1:-1]
 
     # Sample data
     X_GT, Y_GT = defaultdict(dict), defaultdict(dict)
@@ -617,7 +630,7 @@ def plot_fig_2(out=None):
                         linewidth=2.0,
                     )
 
-            plt.xlim(0, 1.2)
+            plt.xlim(0, 1.1)
             plt.ylim(0, 1.1)
             plt.xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
             plt.yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
@@ -639,13 +652,17 @@ def plot_fig_2(out=None):
 
 
 def plot_fig_16(out=None):
-    """Comparing two Gaussian mixtures"""
+    """
+    Comparing two Gaussian mixtures
+    """
+    print("\n##### Fig 16 #####\n")
 
     # Randomness
     seed = 0
     rng = np.random.default_rng(seed)
 
     # Parameters
+    n_GT = 100_000
     n = 1_000
     dim = 64
     means = np.array([0, -5, 3, 5])
@@ -655,15 +672,16 @@ def plot_fig_16(out=None):
     k_values = [4, -1]  # to int(np.sqrt(n)) when -1
     split_values = [True, False]
 
-    lambdas = np.tan(np.linspace(0, np.pi / 2, 151))[1:]
+    lambdas = np.tan(np.linspace(0, np.pi / 2, 152))[1:-1]
 
     # Sample data
+    X_GT, Y_GT = sample_gmm(means, P_weights, Q_weights, dim, n_GT, rng)
     X, Y = sample_gmm(means, P_weights, Q_weights, dim, n, rng)
 
     # Ground Truth
     alphas_GT, betas_GT = pr_curve_GMM_GT(
-        X,
-        Y,
+        X_GT,
+        Y_GT,
         means,
         P_weights,
         Q_weights,
@@ -687,7 +705,14 @@ def plot_fig_16(out=None):
             )
 
             for clf in classifiers:
-                alphas, betas = pr_curve(X, Y, lambdas, clf, k, split)
+                alphas, betas = pr_curve(
+                    X,
+                    Y,
+                    lambdas,
+                    clf,
+                    k,
+                    split,
+                )
                 plt.plot(
                     betas,
                     alphas,
@@ -697,7 +722,7 @@ def plot_fig_16(out=None):
                     linewidth=2.0,
                 )
 
-            plt.xlim(0, 1.2)
+            plt.xlim(0, 1.1)
             plt.ylim(0, 1.1)
             plt.xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
             plt.yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
@@ -719,4 +744,4 @@ def plot_fig_16(out=None):
 
 if __name__ == "__main__":
     plot_fig_2("outputs/Sykes2025_Fig2.png")
-    # plot_fig_16("outputs/Sykes2025_Fig16.png")
+    plot_fig_16("outputs/Sykes2025_Fig16.png")
